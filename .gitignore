@@ -1,0 +1,22 @@
+# Archivos generados en tiempo de ejecucion
+data/
+_debug_captcha_*.html
+
+# Cookie jars / tokens de sesion (curl)
+ck.txt
+*.cookies
+
+node_modules/
+
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+.env
+*.log
+.DS_Store
+.vscode/
+.idea/
+.claude/settings.local.json
