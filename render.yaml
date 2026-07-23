@@ -1,0 +1,15 @@
+# Configuracion de despliegue para Render (https://render.com)
+# Render detecta este archivo y crea el servicio automaticamente (Blueprint).
+services:
+  - type: web
+    name: verum-ec
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn run:app --bind 0.0.0.0:$PORT --timeout 120
+    envVars:
+      - key: VERUM_SECRET_KEY
+        generateValue: true   # Render genera una clave secreta estable
+      - key: PYTHON_VERSION
+        value: "3.12.4"

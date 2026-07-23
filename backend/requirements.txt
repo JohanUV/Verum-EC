@@ -1,5 +1,9 @@
 Flask>=3.0
 requests>=2.31
 
+# Servidor de produccion (Render/Koyeb/etc). Solo se instala en Linux;
+# en Windows local se omite porque gunicorn no lo soporta.
+gunicorn>=21.0; sys_platform != "win32"
+
 # Desarrollo / pruebas
 pytest>=8.0
