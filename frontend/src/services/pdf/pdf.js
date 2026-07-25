@@ -1,145 +1,290 @@
-// Servicio de exportacion del informe a PDF (html2pdf via CDN en index.html).
-import { esc } from '@/utils/formato'
+// Servicio de exportacion del informe a PDF con TEXTO NATIVO (jsPDF).
+// jsPDF viene incluido en el bundle html2pdf que carga el template
+// (window.jspdf.jsPDF). A diferencia del render por imagen (html2canvas),
+// esto produce un documento vectorial: texto nitido y seleccionable, archivo
+// liviano, paginacion automatica sin cortar tarjetas y marca de agua en todas
+// las paginas.
 import { USUARIO } from '@/utils/sesion'
 
-// Paleta para el informe impreso (tema claro, apto para tinta)
-const PDF_COLORS = {
-  limpio:   { c: '#15803d', bg: '#f0fdf4', txt: 'SIN ANTECEDENTES RELEVANTES' },
-  atencion: { c: '#b45309', bg: '#fffbeb', txt: 'REQUIERE ATENCION' },
-  alerta:   { c: '#b91c1c', bg: '#fef2f2', txt: 'ALERTA - HALLAZGOS RELEVANTES' },
+// --- Geometria de pagina (A4 vertical, en mm) ------------------------------
+const PAGE = { w: 210, h: 297 }
+const M = { top: 14, bottom: 16, left: 12, right: 12 }
+const CW = PAGE.w - M.left - M.right // ancho util del contenido
+
+// Semaforo -> color, fondo y etiqueta del informe impreso (tema claro).
+const SEM = {
+  limpio:   { rgb: [21, 128, 61],  bg: [240, 253, 244], txt: 'SIN ANTECEDENTES RELEVANTES' },
+  atencion: { rgb: [180, 83, 9],   bg: [255, 251, 235], txt: 'REQUIERE ATENCION' },
+  alerta:   { rgb: [185, 28, 28],  bg: [254, 242, 242], txt: 'ALERTA - HALLAZGOS RELEVANTES' },
+}
+const INK = [17, 24, 39]
+const MUTED = [107, 114, 128]
+const BORDER = [225, 227, 232]
+const DARK = [14, 14, 26]
+const ROW_BG = [249, 250, 251]
+
+// Altura aproximada de una linea de texto (pt -> mm) para reservar espacio.
+// jsPDF usa lineHeightFactor 1.15 por defecto, que replicamos aqui.
+const lh = (pt) => pt * 0.3528 * 1.15
+
+// --- Utilidades de paginacion ----------------------------------------------
+function marcaAgua(doc, folio) {
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(28)
+  doc.setTextColor(233, 233, 237)
+  const t = `VERUM · CONFIDENCIAL · ${folio || ''}`
+  for (let y = 55; y < PAGE.h; y += 58) {
+    doc.text(t, 14, y, { angle: 26 })
+  }
+  doc.setTextColor(...INK)
 }
 
-function construirInformePDF(data) {
-  const sem = PDF_COLORS[data.semaforo] || PDF_COLORS.limpio
-  const r = data.resumen || {}
-  const fecha = new Date().toLocaleString('es-EC', { dateStyle: 'long', timeStyle: 'short' })
+function nuevaPagina(st) {
+  st.doc.addPage()
+  marcaAgua(st.doc, st.folio)
+  st.y = M.top
+}
 
-  const tarjetas = (data.resultados || []).map(m => {
-    const col = (PDF_COLORS[m.nivel] || PDF_COLORS.limpio).c
-    const tipo = m.tipo === 'real' ? 'API en vivo' : 'Informativo'
-    let filas = ''
-    if (m.datos && m.datos.length) {
-      filas = '<table style="width:100%;border-collapse:collapse;margin-top:6px;font-size:10px">' +
-        m.datos.map(d => {
-          let k, v
-          if ('campo' in d) { k = d.campo; v = d.valor }
-          else {
-            const ex = [d.rol, d.provincia, d.estado].filter(Boolean).join(' · ')
-            k = (d.tipo || 'Registro') + (ex ? ' (' + ex + ')' : ''); v = d.fecha || ''
-          }
-          return `<tr>
-              <td style="padding:4px 8px;border:1px solid #e5e7eb;background:#f9fafb;width:48%;vertical-align:top;color:#374151">${esc(k)}</td>
-              <td style="padding:4px 8px;border:1px solid #e5e7eb;color:#111827">${esc(v)}</td></tr>`
-        }).join('') + '</table>'
+// Salta de pagina si el bloque de alto `h` no cabe en la actual.
+function need(st, h) {
+  if (st.y + h > PAGE.h - M.bottom) nuevaPagina(st)
+}
+
+// --- Bloques del informe ---------------------------------------------------
+function encabezado(st, data, fecha, r) {
+  const d = st.doc
+  const y = st.y
+  d.setFillColor(...DARK)
+  d.roundedRect(M.left, y, CW, 20, 2, 2, 'F')
+
+  d.setFont('helvetica', 'bold'); d.setFontSize(20)
+  d.setTextColor(255, 255, 255)
+  d.text('VERUM', M.left + 6, y + 9)
+  const wV = d.getTextWidth('VERUM')
+  d.setTextColor(125, 211, 252)
+  d.text(' EC', M.left + 6 + wV, y + 9)
+  d.setFont('helvetica', 'normal'); d.setFontSize(9)
+  d.setTextColor(203, 213, 225)
+  d.text('Informe de Verificacion de Antecedentes', M.left + 6, y + 15)
+
+  const rx = PAGE.w - M.right - 6
+  d.setFont('helvetica', 'bold'); d.setFontSize(8)
+  d.setTextColor(255, 255, 255)
+  d.text(`Folio: ${data.folio || 'N/D'}`, rx, y + 7, { align: 'right' })
+  d.setFont('helvetica', 'normal')
+  d.setTextColor(203, 213, 225)
+  d.text(`Generado: ${fecha}`, rx, y + 12, { align: 'right' })
+  d.text(`Fuentes consultadas: ${r.fuentes_consultadas || 0}`, rx, y + 16.5, { align: 'right' })
+
+  st.y += 20 + 6
+}
+
+function filaInfo(st, k, v) {
+  const d = st.doc
+  const kW = CW * 0.28, vW = CW - kW
+  d.setFont('helvetica', 'normal'); d.setFontSize(9.5)
+  const vLines = d.splitTextToSize(String(v ?? ''), vW - 6)
+  const rowH = Math.max(lh(9.5) * vLines.length + 4.5, 8)
+  need(st, rowH)
+  const y = st.y
+  d.setFillColor(...ROW_BG); d.rect(M.left, y, kW, rowH, 'F')
+  d.setDrawColor(...BORDER)
+  d.rect(M.left, y, kW, rowH)
+  d.rect(M.left + kW, y, vW, rowH)
+  d.setTextColor(...INK); d.setFont('helvetica', 'bold')
+  d.text(String(k), M.left + 3, y + 5.5)
+  d.setFont('helvetica', 'normal')
+  d.text(vLines, M.left + kW + 3, y + 5.5)
+  st.y += rowH
+}
+
+function semaforo(st, data, r) {
+  const d = st.doc
+  const s = SEM[data.semaforo] || SEM.limpio
+  const boxH = 26
+  need(st, boxH + 6)
+  const y = st.y
+  d.setFillColor(...s.bg); d.setDrawColor(...s.rgb)
+  d.roundedRect(M.left, y, CW, boxH, 2, 2, 'FD')
+
+  d.setFont('helvetica', 'bold'); d.setFontSize(14)
+  d.setTextColor(...s.rgb)
+  d.text(s.txt, M.left + 5, y + 8)
+
+  // Score a la derecha
+  const sx = PAGE.w - M.right - 5
+  d.setFontSize(18)
+  const score = `${data.score ?? 0}`
+  d.text(score, sx, y + 8, { align: 'right' })
+  const wScore = d.getTextWidth(score)
+  d.setFont('helvetica', 'normal'); d.setFontSize(8); d.setTextColor(...MUTED)
+  d.text('/100', sx - wScore - 1, y + 8, { align: 'right' })
+  d.text(String(data.etiqueta_riesgo || 'Riesgo'), sx, y + 12.5, { align: 'right' })
+
+  d.setFont('helvetica', 'normal'); d.setFontSize(9.5); d.setTextColor(55, 65, 81)
+  const msg = d.splitTextToSize(String(data.mensaje || ''), CW - 45)
+  d.text(msg, M.left + 5, y + 15)
+
+  d.setFontSize(9.5); d.setTextColor(...INK)
+  d.text(
+    `${r.fuentes_consultadas || 0} fuentes   ·   ${r.con_hallazgos || 0} con datos   ·   ${r.alertas || 0} alertas`,
+    M.left + 5, y + 22,
+  )
+  st.y += boxH + 6
+}
+
+function tituloSeccion(st, texto) {
+  const d = st.doc
+  need(st, 12)
+  d.setFont('helvetica', 'bold'); d.setFontSize(12); d.setTextColor(...INK)
+  d.text(texto, M.left, st.y + 4)
+  d.setDrawColor(...DARK); d.setLineWidth(0.5)
+  d.line(M.left, st.y + 6.5, PAGE.w - M.right, st.y + 6.5)
+  d.setLineWidth(0.2)
+  st.y += 11
+}
+
+function filaDato(st, k, v) {
+  const d = st.doc
+  const x = M.left + 5, w = CW - 5
+  const kW = w * 0.45, vW = w - kW
+  d.setFont('helvetica', 'normal'); d.setFontSize(9)
+  const kLines = d.splitTextToSize(String(k || ''), kW - 5)
+  const vLines = d.splitTextToSize(String(v || ''), vW - 5)
+  const rowH = Math.max(lh(9) * kLines.length, lh(9) * vLines.length) + 3.5
+  need(st, rowH)
+  const y = st.y
+  d.setFillColor(...ROW_BG); d.rect(x, y, kW, rowH, 'F')
+  d.setDrawColor(...BORDER)
+  d.rect(x, y, kW, rowH)
+  d.rect(x + kW, y, vW, rowH)
+  d.setTextColor(55, 65, 81); d.text(kLines, x + 2.5, y + 4.5)
+  d.setTextColor(...INK); d.text(vLines, x + kW + 2.5, y + 4.5)
+  st.y += rowH
+}
+
+function tarjeta(st, m) {
+  const d = st.doc
+  const col = (SEM[m.nivel] || SEM.limpio).rgb
+  const tipo = m.tipo === 'real' ? 'API en vivo' : 'Informativo'
+
+  // Encabezado de la tarjeta (barra de color + titulo + badge + resumen).
+  d.setFontSize(10)
+  const resumenLines = d.splitTextToSize(String(m.resumen || ''), CW - 12)
+  const headH = 8 + lh(10) * resumenLines.length + 2
+  // Evita que el encabezado quede huerfano al final de la pagina.
+  need(st, headH + 8)
+  const y = st.y
+
+  d.setFillColor(...col); d.rect(M.left, y, 1.5, headH, 'F')
+
+  d.setFont('helvetica', 'bold'); d.setFontSize(11); d.setTextColor(...INK)
+  d.text(String(m.fuente || ''), M.left + 5, y + 5)
+
+  d.setFont('helvetica', 'bold'); d.setFontSize(7.5)
+  const bw = d.getTextWidth(tipo) + 6
+  const bx = PAGE.w - M.right - bw
+  d.setFillColor(...(m.tipo === 'real' ? [14, 116, 144] : [107, 114, 128]))
+  d.roundedRect(bx, y + 1, bw, 5, 1, 1, 'F')
+  d.setTextColor(255, 255, 255)
+  d.text(tipo, bx + 3, y + 4.5)
+
+  d.setFont('helvetica', 'bold'); d.setFontSize(10); d.setTextColor(...col)
+  d.text(resumenLines, M.left + 5, y + 10)
+  st.y += headH
+
+  if (m.datos && m.datos.length) {
+    for (const dr of m.datos) {
+      let k, v
+      if ('campo' in dr) { k = dr.campo; v = dr.valor }
+      else {
+        const ex = [dr.rol, dr.provincia, dr.estado].filter(Boolean).join(' · ')
+        k = (dr.tipo || 'Registro') + (ex ? ` (${ex})` : ''); v = dr.fecha || ''
+      }
+      filaDato(st, k, v)
     }
-    const link = m.enlace ? `<div style="font-size:9px;color:#6b7280;margin-top:5px;word-break:break-all">Portal oficial: ${esc(m.enlace)}</div>` : ''
-    return `
-      <div style="page-break-inside:avoid;border:1px solid #e5e7eb;border-left:4px solid ${col};border-radius:6px;padding:10px 12px;margin-bottom:10px;background:#fff">
-          <div style="display:flex;justify-content:space-between;align-items:center">
-              <span style="font-size:13px;font-weight:700;color:#111827">${esc(m.fuente)}</span>
-              <span style="font-size:9px;font-weight:700;color:#fff;background:${m.tipo === 'real' ? '#0e7490' : '#6b7280'};padding:2px 8px;border-radius:10px">${tipo}</span>
-          </div>
-          <div style="font-size:11px;color:${col};font-weight:600;margin-top:4px">${esc(m.resumen)}</div>
-          ${filas}${link}
-      </div>`
-  }).join('')
-
-  // Marca de agua: lineas diagonales repetidas, tenues, sobre el contenido
-  let marca = ''
-  for (let y = -10; y < 150; y += 26) {
-    marca += `<div style="position:absolute;top:${y}mm;left:-20mm;width:240mm;text-align:center;
-        transform:rotate(-30deg);font-size:34px;font-weight:800;color:#000;opacity:0.05;
-        letter-spacing:8px;white-space:nowrap">VERUM · CONFIDENCIAL · ${esc(data.folio || '')}</div>`
   }
 
-  return `
-  <div style="position:relative;font-family:Arial,Helvetica,sans-serif;color:#111827;padding:0;background:#fff;width:190mm">
-      <div style="position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:0">${marca}</div>
-      <div style="position:relative;z-index:1">
-      <div style="background:#0e0e1a;color:#fff;padding:16px 20px;border-radius:6px;display:flex;justify-content:space-between;align-items:center">
-          <div>
-              <div style="font-size:22px;font-weight:800;letter-spacing:1px">VERUM<span style="color:#7dd3fc"> EC</span></div>
-              <div style="font-size:11px;color:#cbd5e1">Informe de Verificación de Antecedentes</div>
-          </div>
-          <div style="text-align:right;font-size:10px;color:#cbd5e1">
-              <div style="font-weight:700;color:#fff">Folio: ${esc(data.folio || 'N/D')}</div>
-              <div>Generado: ${esc(fecha)}</div>
-              <div>Fuentes consultadas: ${esc(r.fuentes_consultadas || 0)}</div>
-          </div>
-      </div>
+  if (m.enlace) {
+    d.setFont('helvetica', 'normal'); d.setFontSize(8)
+    const lines = d.splitTextToSize(`Portal oficial: ${m.enlace}`, CW - 6)
+    const h = lh(8) * lines.length + 2
+    need(st, h)
+    d.setTextColor(...MUTED)
+    d.text(lines, M.left + 5, st.y + 3.5)
+    st.y += h
+  }
 
-      <table style="width:100%;border-collapse:collapse;margin-top:14px;font-size:11px">
-          <tr>
-              <td style="padding:6px 10px;border:1px solid #e5e7eb;background:#f9fafb;font-weight:700;width:25%">Cedula</td>
-              <td style="padding:6px 10px;border:1px solid #e5e7eb">${esc(data.cedula || '')}</td>
-          </tr>
-          <tr>
-              <td style="padding:6px 10px;border:1px solid #e5e7eb;background:#f9fafb;font-weight:700">Titular</td>
-              <td style="padding:6px 10px;border:1px solid #e5e7eb">${esc(data.titular || 'No determinado')}</td>
-          </tr>
-          <tr>
-              <td style="padding:6px 10px;border:1px solid #e5e7eb;background:#f9fafb;font-weight:700">Propósito (LOPDP)</td>
-              <td style="padding:6px 10px;border:1px solid #e5e7eb">${esc(data.proposito || 'No especificado')}</td>
-          </tr>
-          <tr>
-              <td style="padding:6px 10px;border:1px solid #e5e7eb;background:#f9fafb;font-weight:700">Emitido por</td>
-              <td style="padding:6px 10px;border:1px solid #e5e7eb">${esc(data.usuario || USUARIO || '—')}</td>
-          </tr>
-      </table>
-
-      <div style="margin-top:14px;padding:14px 18px;border-radius:6px;background:${sem.bg};border:1px solid ${sem.c}">
-          <div style="display:flex;justify-content:space-between;align-items:center">
-              <div style="font-size:16px;font-weight:800;color:${sem.c}">${sem.txt}</div>
-              <div style="text-align:center"><div style="font-size:22px;font-weight:800;color:${sem.c}">${esc(data.score ?? 0)}<span style="font-size:11px;color:#6b7280">/100</span></div><div style="font-size:9px;color:#6b7280">${esc(data.etiqueta_riesgo || 'Riesgo')}</div></div>
-          </div>
-          <div style="font-size:11px;color:#374151;margin-top:3px">${esc(data.mensaje || '')}</div>
-          <div style="margin-top:8px;font-size:11px;color:#374151">
-              <strong>${esc(r.fuentes_consultadas || 0)}</strong> fuentes &nbsp;·&nbsp;
-              <strong>${esc(r.con_hallazgos || 0)}</strong> con datos &nbsp;·&nbsp;
-              <strong style="color:${PDF_COLORS.alerta.c}">${esc(r.alertas || 0)}</strong> alertas
-          </div>
-      </div>
-
-      <div style="margin-top:16px;font-size:13px;font-weight:700;color:#111827;border-bottom:2px solid #0e0e1a;padding-bottom:4px">
-          Detalle por fuente
-      </div>
-      <div style="margin-top:10px">${tarjetas}</div>
-
-      <div style="margin-top:18px;padding-top:10px;border-top:1px solid #e5e7eb;font-size:9px;color:#6b7280">
-          Folio ${esc(data.folio || 'N/D')} &middot; Emitido por ${esc(data.usuario || USUARIO || '—')} &middot; Propósito declarado: ${esc(data.proposito || 'No especificado')}.<br>
-          Documento generado automáticamente por Verum a partir de fuentes públicas del Ecuador.
-          Las fuentes marcadas como "Informativo" no exponen API y deben verificarse en el portal oficial.
-          Este informe tiene caracter referencial y no sustituye certificados oficiales. Tratamiento de datos conforme a la LOPDP.
-      </div>
-      </div>
-  </div>`
+  st.y += 5 // separacion entre tarjetas
 }
 
+function notaLegal(st, data) {
+  const d = st.doc
+  st.y += 3
+  need(st, 8)
+  d.setDrawColor(...BORDER); d.line(M.left, st.y, PAGE.w - M.right, st.y)
+  st.y += 4
+  d.setFont('helvetica', 'normal'); d.setFontSize(8); d.setTextColor(...MUTED)
+  const txt = `Folio ${data.folio || 'N/D'} · Emitido por ${data.usuario || USUARIO || '—'} · `
+    + `Proposito declarado: ${data.proposito || 'No especificado'}. `
+    + 'Documento generado automaticamente por Verum a partir de fuentes publicas del Ecuador. '
+    + 'Las fuentes marcadas como "Informativo" no exponen API y deben verificarse en el portal oficial. '
+    + 'Este informe tiene caracter referencial y no sustituye certificados oficiales. '
+    + 'Tratamiento de datos conforme a la LOPDP.'
+  const lines = d.splitTextToSize(txt, CW)
+  for (const ln of lines) {
+    need(st, lh(8) + 0.5)
+    d.text(ln, M.left, st.y + 3)
+    st.y += lh(8) + 0.5
+  }
+}
+
+function pieDePagina(doc, page, total) {
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...MUTED)
+  const y = PAGE.h - 8
+  doc.text('Verum EC · Documento confidencial', M.left, y)
+  doc.text(`Pagina ${page} de ${total}`, PAGE.w - M.right, y, { align: 'right' })
+}
+
+// --- API publica -----------------------------------------------------------
 export function exportarPDF(data, showToast) {
   if (!data) { showToast('Primero realiza una consulta'); return }
-  if (typeof window.html2pdf === 'undefined') { showToast('La libreria de PDF no cargo. Recarga la pagina.'); return }
-  const ced = data.cedula || 'informe'
-  showToast('Generando PDF...', 'success')
+  const Ctor = window.jspdf && window.jspdf.jsPDF
+  if (!Ctor) { showToast('La libreria de PDF no cargo. Recarga la pagina.'); return }
 
-  const cont = document.createElement('div')
-  cont.style.position = 'fixed'
-  cont.style.left = '-9999px'
-  cont.style.top = '0'
-  cont.style.background = '#fff'
-  cont.innerHTML = construirInformePDF(data)
-  document.body.appendChild(cont)
+  try {
+    showToast('Generando PDF...', 'success')
+    const doc = new Ctor({ unit: 'mm', format: 'a4', orientation: 'portrait' })
+    doc.setLineWidth(0.2)
 
-  window.html2pdf().set({
-    margin: [10, 10, 12, 10],
-    filename: 'Verum_' + ced + '.pdf',
-    image: { type: 'jpeg', quality: 0.98 },
-    html2canvas: { scale: 2, backgroundColor: '#ffffff', useCORS: true },
-    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-    pagebreak: { mode: ['css', 'legacy'] },
-  }).from(cont.firstElementChild).save().then(() => {
-    document.body.removeChild(cont)
-  }).catch(() => {
-    document.body.removeChild(cont)
+    const r = data.resumen || {}
+    const fecha = new Date().toLocaleString('es-EC', { dateStyle: 'long', timeStyle: 'short' })
+    const st = { doc, y: M.top, folio: data.folio }
+
+    marcaAgua(doc, st.folio)
+    encabezado(st, data, fecha, r)
+
+    st.y += 2
+    filaInfo(st, 'Cedula', data.cedula || '')
+    filaInfo(st, 'Titular', data.titular || 'No determinado')
+    filaInfo(st, 'Proposito (LOPDP)', data.proposito || 'No especificado')
+    filaInfo(st, 'Emitido por', data.usuario || USUARIO || '—')
+    st.y += 6
+
+    semaforo(st, data, r)
+    tituloSeccion(st, 'Detalle por fuente')
+    for (const m of (data.resultados || [])) tarjeta(st, m)
+    notaLegal(st, data)
+
+    // Pie con numeracion en todas las paginas (una vez conocido el total).
+    const total = doc.internal.getNumberOfPages()
+    for (let p = 1; p <= total; p++) {
+      doc.setPage(p)
+      pieDePagina(doc, p, total)
+    }
+
+    doc.save('Verum_' + (data.cedula || 'informe') + '.pdf')
+  } catch (e) {
     showToast('No se pudo generar el PDF')
-  })
+  }
 }
