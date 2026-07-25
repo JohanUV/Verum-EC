@@ -48,23 +48,6 @@ def _perfil_atencion(titular):
                   nivel="atencion", tipo="real"),
         resultado("Listas de Sancion (OFAC / ONU)", "fa-ban", "sin_resultados",
                   "Sin coincidencias en listas de sancion.", tipo="real"),
-        resultado("Titulos Educacion Superior (SENESCYT)", "fa-user-graduate", "ok",
-                  "1 titulo de tercer nivel registrado.",
-                  datos=[{"campo": "Titulo", "valor": "Ingeniero en Sistemas"},
-                         {"campo": "Institucion", "valor": "Universidad Central del Ecuador"}],
-                  tipo="captcha", clave="senescyt"),
-        resultado("Titulo de Bachiller (MinEduc)", "fa-graduation-cap", "ok",
-                  "Bachiller registrado.",
-                  datos=[{"campo": "Especialidad", "valor": "Ciencias"}],
-                  tipo="captcha", clave="bachiller"),
-        resultado("Registro Social (MIES)", "fa-house-user", "no_disponible",
-                  "Consulta manual en el portal SIIRS (requiere fecha de expedicion).",
-                  nivel="limpio", tipo="informativo", clave="registro_social",
-                  enlace="https://www.registrosocial.gob.ec/"),
-        resultado("Record Policial", "fa-fingerprint", "no_disponible",
-                  "Verificar en el portal oficial del Ministerio del Interior.",
-                  nivel="limpio", tipo="informativo",
-                  enlace="https://certificados.ministeriodelinterior.gob.ec/"),
     ]
 
 
@@ -100,16 +83,6 @@ def _perfil_alerta(titular):
                   "Coincidencia parcial por nombre (requiere verificacion manual).",
                   datos=[{"campo": "Lista", "valor": "OFAC - SDN (coincidencia parcial)"}],
                   nivel="atencion", tipo="real"),
-        resultado("Titulos Educacion Superior (SENESCYT)", "fa-user-graduate", "sin_resultados",
-                  "Sin titulos de tercer nivel registrados.",
-                  tipo="captcha", clave="senescyt"),
-        resultado("Titulo de Bachiller (MinEduc)", "fa-graduation-cap", "ok",
-                  "Bachiller registrado.", datos=[{"campo": "Especialidad", "valor": "Contabilidad"}],
-                  tipo="captcha", clave="bachiller"),
-        resultado("Record Policial", "fa-fingerprint", "no_disponible",
-                  "Verificar en el portal oficial del Ministerio del Interior.",
-                  nivel="limpio", tipo="informativo",
-                  enlace="https://certificados.ministeriodelinterior.gob.ec/"),
     ]
 
 
@@ -129,20 +102,6 @@ def _perfil_limpio(titular):
                   "Sin multas de transito pendientes.", tipo="real"),
         resultado("Listas de Sancion (OFAC / ONU)", "fa-ban", "sin_resultados",
                   "Sin coincidencias en listas de sancion.", tipo="real"),
-        resultado("Titulos Educacion Superior (SENESCYT)", "fa-user-graduate", "sin_resultados",
-                  "Sin titulos de tercer nivel registrados.",
-                  tipo="captcha", clave="senescyt"),
-        resultado("Titulo de Bachiller (MinEduc)", "fa-graduation-cap", "sin_resultados",
-                  "Sin registro de bachiller disponible.",
-                  tipo="captcha", clave="bachiller"),
-        resultado("Registro Social (MIES)", "fa-house-user", "no_disponible",
-                  "Consulta manual en el portal SIIRS (requiere fecha de expedicion).",
-                  nivel="limpio", tipo="informativo", clave="registro_social",
-                  enlace="https://www.registrosocial.gob.ec/"),
-        resultado("Record Policial", "fa-fingerprint", "no_disponible",
-                  "Verificar en el portal oficial del Ministerio del Interior.",
-                  nivel="limpio", tipo="informativo",
-                  enlace="https://certificados.ministeriodelinterior.gob.ec/"),
     ]
 
 

@@ -34,11 +34,10 @@ def verificacion_completa(cedula, proposito, usuario):
         if jud and jud["datos"]:
             titular = nombre_titular_desde_judicial(jud["datos"])
 
-    # Cotejo de sanciones (por nombre del titular). Se inserta antes de
-    # Record Policial para que esa fuente quede al final.
+    # Cotejo de sanciones (por nombre del titular).
     if titular:
         sanciones = consultar_sanciones(titular)
-        resultados.insert(len(resultados) - 1, sanciones)
+        resultados.append(sanciones)
 
     # Semaforo consolidado
     alertas = sum(1 for r in resultados if r["nivel"] == "alerta")
