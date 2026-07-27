@@ -1,6 +1,7 @@
 // Servicio de exportacion del informe a PDF con TEXTO NATIVO (jsPDF).
-// jsPDF viene incluido en el bundle html2pdf que carga el template
-// (window.jspdf.jsPDF). A diferencia del render por imagen (html2canvas),
+// jsPDF lo carga el template como script suelto y expone window.jspdf.jsPDF.
+// Ojo: el bundle de html2pdf NO define ese global, aunque lo incluya dentro.
+// A diferencia del render por imagen (html2canvas),
 // esto produce un documento vectorial: texto nitido y seleccionable, archivo
 // liviano, paginacion automatica sin cortar tarjetas y marca de agua en todas
 // las paginas.
